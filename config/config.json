@@ -22,11 +22,12 @@
         "otp_secret": ""
       },
       "target": {
-        "event_url": "在此粘贴淘票票电影购票页链接",
+        "event_url": "https://dianying.taobao.com/cinemaDetail.htm?cinemaId=43843&n_s=new#seat",
         "priorities": {
           "date": [
             1,
-            2
+            2,
+            3
           ],
           "session": [
             1,
@@ -46,7 +47,7 @@
   },
   "strategy": {
     "auto_strike": true,
-    "strike_time": "在此填入开售/场次时间, 如 2026-09-05T19:30:00",
+    "strike_time": "2026-09-02T14:00:00",
     "preheat_stages": [
       5,
       2,
