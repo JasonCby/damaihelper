@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, Optional
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 COOKIES_PATH = ROOT_DIR / "cookies.pkl"
+SESSIONS_DUMP_PATH = ROOT_DIR / "logs" / "sessions_latest.json"
 
 # 等待用户在浏览器里完成扫码/短信登录的最长秒数
 LOGIN_WAIT_TIMEOUT = 120
@@ -190,6 +191,9 @@ class RealBrowserFlow:
                 f"页面观测: {name} 命中 {len(hits)} 个元素" + (f"（首个: {hits[0].text[:40]!r}）" if hits else ""),
             )
 
+        # 场次解析（真实 DOM → 结构化场次列表）
+        self._parse_sessions(params)
+
         # 页面真实可交互状态快照（供前端展示）
         snapshot = {
             "title": driver.title,
@@ -202,6 +206,108 @@ class RealBrowserFlow:
             "SYSTEM",
             "真实浏览器流程执行完毕（学习模式：只做导航/登录/观测，不自动提交订单）",
         )
+
+    # ------------------------------------------------------------------
+    # 场次解析
+    # ------------------------------------------------------------------
+    SCHEDULE_WAIT_TIMEOUT = 20.0   # 场次懒加载最长等待秒数
+    SCHEDULE_POLL_INTERVAL = 2.0
+
+    def _wait_for_schedule_html(self) -> str:
+        """滚动触发懒加载并轮询，直到场次表出现（或超时返回当前页面）。
+
+        学习点：淘票票场次区是 AJAX 异步渲染的，driver.get 返回时 DOM 里
+        还没有 hall-time 行；需要滚动到排片区触发加载。
+        另外：旧登录 Cookie 可能触发风控导致场次接口被拦（rgv587），
+        游客态反而能正常渲染，因此超时后清 Cookie 重试一次。
+        """
+        driver = self._driver
+        html = self._poll_schedule(driver)
+        if "hall-time" in html and "seat-btn" in html:
+            return html
+
+        # 场次未渲染：清掉 Cookie（可能触发风控）用游客态重试
+        if driver.get_cookies():
+            self._log("INFO", "场次未渲染，尝试清除 Cookie 后以游客态重试...")
+            try:
+                driver.delete_all_cookies()
+                driver.get(driver.current_url.split("#")[0])
+                html = self._poll_schedule(driver)
+            except Exception as exc:  # noqa: BLE001
+                self._log("WARNING", f"游客态重试失败: {str(exc)[:120]}")
+        return html
+
+    def _poll_schedule(self, driver: Any) -> str:
+        deadline = time.time() + self.SCHEDULE_WAIT_TIMEOUT
+        html = ""
+        while time.time() < deadline:
+            if self._stopped():
+                return html or driver.page_source
+            # 交替滚动：先到中部再到页底，触发懒加载
+            driver.execute_script(
+                "window.scrollTo(0, Math.max(400, document.body.scrollHeight * 0.4));"
+            )
+            time.sleep(self.SCHEDULE_POLL_INTERVAL / 2)
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(self.SCHEDULE_POLL_INTERVAL / 2)
+
+            html = driver.page_source
+            # 已出现真实场次行则提前返回（hall-time 可能出现在脚本模板里，
+            # 所以要求 seat-btn 一起出现才算渲染完成）
+            if "hall-time" in html and "seat-btn" in html:
+                break
+        return html or driver.page_source
+
+    def _parse_sessions(self, params: Dict[str, Any]) -> None:
+        """解析影院页场次表并记录：全部场次 + 优先级命中结果。"""
+        try:
+            from .cinema_parser import parse_schedule_html, pick_sessions, summarize
+        except ImportError as exc:
+            self._log("WARNING", f"场次解析器不可用，跳过: {exc}")
+            return
+
+        try:
+            sessions = parse_schedule_html(self._wait_for_schedule_html())
+        except Exception as exc:  # noqa: BLE001
+            self._log("WARNING", f"场次解析失败: {str(exc)[:120]}")
+            return
+
+        if not sessions:
+            self._log("WARNING", "页面中未解析到任何场次（可能未到放票时间或页面被风控拦截）")
+            return
+
+        self._log("SYSTEM", f"场次解析完成: 共 {len(sessions)} 个场次")
+        for line in summarize(sessions).splitlines():
+            self._log("INFO", f"场次 | {line}")
+
+        priorities = params.get("session_priorities") or []
+        picked = pick_sessions(sessions, session_priorities=priorities)
+        if priorities:
+            if picked:
+                for s in picked:
+                    self._log(
+                        "SYSTEM",
+                        f"优先级命中: {s.start_time} {s.language} {s.dimension} "
+                        f"{s.hall} ¥{s.price_now} scheduleId={s.schedule_id}",
+                    )
+            else:
+                self._log("WARNING", f"优先场次未命中: {priorities}（当前场次: {[s.start_time for s in sessions]}）")
+
+        # 持久化解析结果（供前端/调试查看）
+        try:
+            SESSIONS_DUMP_PATH.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "parsed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "url": self._driver.current_url,
+                "total": len(sessions),
+                "picked": [s.to_dict() for s in picked],
+                "sessions": [s.to_dict() for s in sessions],
+            }
+            with open(SESSIONS_DUMP_PATH, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            self._log("INFO", f"场次结果已写入: {SESSIONS_DUMP_PATH}")
+        except Exception as exc:  # noqa: BLE001
+            self._log("WARNING", f"场次结果写入失败: {str(exc)[:120]}")
 
     # ------------------------------------------------------------------
     # cookies 持久化
