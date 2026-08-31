@@ -17,19 +17,21 @@
     "acc_primary": {
       "platform": "taopiaopiao",
       "credentials": {
-        "mobile": "13888888888",
-        "password": "mysecretpassword",
-        "otp_secret": "optional_2fa_key_123"
+        "mobile": "在此填入你的手机号",
+        "password": "",
+        "otp_secret": ""
       },
       "target": {
-        "event_url": "https://detail.damai.cn/item.htm?id=80456123490",
+        "event_url": "在此粘贴淘票票电影购票页链接",
         "priorities": {
           "date": [
             1,
             2
           ],
           "session": [
-            1
+            1,
+            2,
+            3
           ],
           "price_range": "lowest_to_highest"
         },
@@ -39,16 +41,12 @@
           1
         ]
       },
-      "proxy": {
-        "type": "socks5",
-        "addr": "user123:pass456@proxy.secure-link.com:1080",
-        "rotate_interval": "300s"
-      }
+      "proxy": null
     }
   },
   "strategy": {
     "auto_strike": true,
-    "strike_time": "2026-06-30T20:00:00",
+    "strike_time": "在此填入开售/场次时间, 如 2026-09-05T19:30:00",
     "preheat_stages": [
       5,
       2,
@@ -69,24 +67,7 @@
     ]
   },
   "notification": {
-    "channels": [
-      {
-        "telegram": {
-          "bot_token": "6543210:AAF-XYZ_123",
-          "chat_id": "-100123456789"
-        }
-      },
-      {
-        "email": {
-          "smtp": "smtp.fastmail.com:465",
-          "user": "damaihelper@fastmail.com",
-          "pass": "emailapppassword123",
-          "recipients": [
-            "notify-me@domain.com"
-          ]
-        }
-      }
-    ]
+    "channels": []
   },
   "plugins": {
     "custom": [
