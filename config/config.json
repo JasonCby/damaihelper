@@ -55,6 +55,7 @@
     ],
     "ai_enabled": true,
     "ai_model_path": "models/lstm_onnx.onnx",
+    "headless": false,
     "max_retries": 180,
     "retry_backoff": "exponential"
   },

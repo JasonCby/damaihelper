@@ -222,6 +222,32 @@ class TaskRunner:
         dry_run: bool,
         stop_event: threading.Event,
     ) -> None:
+        # 非 dry-run：接入真实浏览器（导航/登录/观测），失败则回退模拟流程
+        if not dry_run:
+            try:
+                from .browser_flow import RealBrowserFlow
+
+                self._log("SYSTEM", f"任务 {task_id} 启动 · 实机调度模式（真实浏览器）")
+                self._log("INFO", f"账户={params.get('account_id')} 平台={params.get('platform')} 票数={params.get('tickets')}")
+                flow = RealBrowserFlow(
+                    log=self._log,
+                    progress=self._progress,
+                    stopped=lambda: self._stopped(stop_event),
+                    sleep=lambda s: self._sleep(s, stop_event),
+                )
+                state = flow.run(params)
+                if state == "stopped" or self._stopped(stop_event):
+                    self._finish_stopped()
+                else:
+                    self._finish_completed("真实浏览器流程完成")
+                    self._log("SYSTEM", f"任务 {task_id} 已完成")
+                return
+            except ImportError as exc:
+                self._log("WARNING", f"selenium 未安装，回退模拟流程: {exc}")
+            except Exception as exc:  # noqa: BLE001
+                self._finish_error(exc)
+                return
+
         try:
             mode = "逻辑演练模式 (dry-run)" if dry_run else "实机调度模式"
             self._log("SYSTEM", f"任务 {task_id} 启动 · {mode}")
